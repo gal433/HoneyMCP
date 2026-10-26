@@ -126,5 +126,5 @@ dashboard/
 analyze.py     log summarizer
 smoke_test.py  end-to-end local test
 start.py       entrypoint: APP=dashboard -> dashboard, else honeypot
-Dockerfile
+Dockerfile, railway.json
 ```
