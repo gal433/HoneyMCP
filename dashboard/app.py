@@ -222,7 +222,7 @@ code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fo
 pre { white-space:pre-wrap; word-break:break-word; margin:0; max-height:70vh; overflow:auto; }
 .muted { color:var(--muted); }
 .tag { display:inline-block; padding:1px 7px; border-radius:999px; border:1px solid var(--line); font-size:12px; }
-.tag.disclosure_capture { background:var(--warnbg); color:var(--warn); border-color:transparent; }
+.tag.disclosure_capture, .tag.honeytoken_hit, .tag.injection_compliance { background:var(--warnbg); color:var(--warn); border-color:transparent; }
 .chart { width:100%; height:auto; display:block; } .chart rect { fill:var(--accent); } .chart line { stroke:var(--line); }
 .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; margin-top:4px; }
 .kpi.warn .v a { color:inherit; }
@@ -244,7 +244,7 @@ def page(title: str, body: str, range_key: str | None = None, path: str = "/") -
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{esc(title)} · Watchtower</title><style>{STYLE}</style></head><body>
 <header><span class="brand">Watchtower</span>
-<nav><a href="/">Overview</a><a href="/events">All events</a><a href="/events?type=disclosure_capture">Disclosures</a></nav>
+<nav><a href="/">Overview</a><a href="/events">All events</a><a href="/events?type=disclosure_capture">Disclosures</a><a href="/events?type=honeytoken_hit">Honeytokens</a><a href="/events?type=injection_compliance">Injections</a></nav>
 {ranges}</header><main>{body}</main></body></html>"""
     return HTMLResponse(doc, headers=SECURITY_HEADERS)
 
@@ -264,6 +264,8 @@ def overview(request: Request) -> HTMLResponse:
           count(*) FILTER (WHERE event = 'http_request') AS requests,
           count(DISTINCT ip) FILTER (WHERE event = 'http_request') AS ips,
           count(*) FILTER (WHERE event = 'disclosure_capture') AS disclosures,
+          count(*) FILTER (WHERE event = 'honeytoken_hit') AS honeytokens,
+          count(*) FILTER (WHERE event = 'injection_compliance') AS injections,
           (SELECT count(*) FROM events {MESSAGES} WHERE event = 'http_request' AND ts >= %s
              AND m->>'method' = 'initialize') AS initializes,
           (SELECT count(*) FROM events {MESSAGES} WHERE event = 'http_request' AND ts >= %s
@@ -354,6 +356,8 @@ def overview(request: Request) -> HTMLResponse:
   {kpi("MCP initialize", k["initializes"])}
   {kpi("Tool calls", k["tool_calls"])}
   {kpi("Disclosures", k["disclosures"], warn=True, href="/events?type=disclosure_capture")}
+  {kpi("Honeytoken use", k["honeytokens"], warn=True, href="/events?type=honeytoken_hit")}
+  {kpi("Injection follows", k["injections"], warn=True, href="/events?type=injection_compliance")}
 </div>
 <div class="card"><h2>Requests per {unit}</h2>{bar_chart([(r["bucket"], r["n"]) for r in timeline], unit)}</div>
 <div class="card"><h2>Latest disclosures</h2>{disclosure_html or '<p class="muted">None captured in this range.</p>'}</div>
@@ -378,7 +382,23 @@ def overview(request: Request) -> HTMLResponse:
     return page("Overview", body, range_key, "/")
 
 
-def event_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
+def response_bodies(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Resolve the response_ref on tool_invocation rows back to the stored
+    response bodies (logged once per distinct response as response_template)."""
+    refs = sorted({(r["data"] or {}).get("response_ref") for r in rows
+                   if r["event"] == "tool_invocation" and (r["data"] or {}).get("response_ref")})
+    if not refs:
+        return {}
+    found = query(
+        "SELECT DISTINCT ON (data->>'ref') data->>'ref' AS ref, data->'body' AS body "
+        "FROM events WHERE event = 'response_template' AND data->>'ref' = ANY(%s) "
+        "ORDER BY data->>'ref', id DESC",
+        (list(refs),),
+    )
+    return {row["ref"]: row["body"] for row in found}
+
+
+def event_rows(rows: list[dict[str, Any]], responses: dict[str, Any] | None = None) -> list[list[str]]:
     out = []
     for r in rows:
         data = r["data"] or {}
@@ -386,7 +406,11 @@ def event_rows(rows: list[dict[str, Any]]) -> list[list[str]]:
             detail = f"{esc(data.get('method'))} <code>{short(data.get('path'), 50)}</code> {rpc_summary(data)}"
         elif r["event"] in ("tool_invocation", "disclosure_capture"):
             payload = data.get("arguments") if r["event"] == "tool_invocation" else data.get("hits")
-            detail = f"<code>{esc(data.get('tool'))}</code> {short(json.dumps(payload, ensure_ascii=False, default=str), 120)}"
+            detail = f"<code>{esc(data.get('tool'))}</code> {short(json.dumps(payload, ensure_ascii=False, default=str), 110)}"
+            if responses is not None and r["event"] == "tool_invocation":
+                body = responses.get(data.get("response_ref"))
+                if body is not None:
+                    detail += f' <span class="muted">→ {short(json.dumps(body, ensure_ascii=False, default=str), 110)}</span>'
         else:
             rest = {k: v for k, v in data.items() if k not in ("ts", "event")}
             detail = short(json.dumps(rest, ensure_ascii=False, default=str), 140)
@@ -453,12 +477,26 @@ def event_detail(request: Request) -> HTMLResponse:
             (r["request_id"], r["id"]),
         )
         if rel:
-            related = f'<div class="card"><h2>Same request</h2>{table(["Time (UTC)", "Event", "IP", "Detail"], event_rows(rel))}</div>'
+            related = (f'<div class="card"><h2>Same request</h2>'
+                       f'{table(["Time (UTC)", "Event", "IP", "Detail"], event_rows(rel, response_bodies(rel)))}</div>')
+
+    # Server response: tool_invocation events carry a response_ref into the
+    # response_template catalog; render the actual body the caller received.
+    response_card = ""
+    ref = (r["data"] or {}).get("response_ref")
+    if ref:
+        body_map = response_bodies([r])
+        if ref in body_map:
+            response_card = f'<div class="card"><h2>Server response</h2><pre>{pretty_json(body_map[ref])}</pre></div>'
+        else:
+            response_card = f'<div class="card"><h2>Server response</h2><p class="muted">template {esc(ref)} (body not recorded)</p></div>'
+
     body = f"""
 <h1><span class="tag {esc(r['event'])}">{esc(r['event'])}</span> #{r['id']}</h1>
 <p>{fmt_ts(r['ts'])} UTC · {ip_link(r['ip'])}</p>
 {related}
 <div class="card"><h2>Raw event</h2><pre>{pretty_json(r['data'])}</pre></div>
+{response_card}
 """
     return page(f"Event {r['id']}", body)
 
