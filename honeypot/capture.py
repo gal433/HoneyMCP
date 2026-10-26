@@ -13,11 +13,12 @@ disconnects), independent of SDK version.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .eventlog import log_event
+from .eventlog import current_ip, current_request_id, log_event
 
 # Headers worth recording verbatim. We log all of them but flag these.
 _INTERESTING = {
@@ -96,9 +97,12 @@ class CaptureMiddleware:
                 more = False
 
         ip = _client_ip(scope, headers)
+        # Tag every event logged while handling this request (tool calls,
+        # disclosures) with the caller's IP and a request id.
+        current_ip.set(ip)
+        current_request_id.set(uuid.uuid4().hex[:12])
         log_event(
             "http_request",
-            ip=ip,
             method=scope.get("method"),
             path=scope.get("path"),
             user_agent=headers.get("user-agent"),

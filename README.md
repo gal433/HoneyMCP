@@ -58,7 +58,49 @@ python smoke_test.py
    so logs survive redeploys. Otherwise rely on stdout logs.
 
 Config via env vars: `HONEYPOT_NAME` (server name shown to clients), `LOG_FILE`,
-`PORT` (Railway sets this automatically).
+`DATABASE_URL` (see below), `PORT` (Railway sets this automatically).
+
+## Dashboard
+
+`dashboard/` is a separate, private web app for browsing what connected: an
+overview (requests over time, top IPs, User-Agents, claimed MCP clients, tools
+called, paths hit), the latest captured disclosures, a filterable event list,
+per-IP timelines, and the raw JSON of every event. It never links to or names
+the honeypot, and it runs as its own Railway service so it shares nothing with
+the honeypot except the database.
+
+How the data gets there: when `DATABASE_URL` is set, the honeypot also inserts
+every event into an `events` table in Postgres (it creates the table itself).
+Inserts happen on a background thread, so a slow or down database never slows
+the honeypot; events always stay on stdout too. Tool calls and disclosures are
+tagged with the caller's IP and a `request_id` linking them to their request.
+
+Access is HTTP Basic auth (`DASHBOARD_USER`, default `admin`, and
+`DASHBOARD_PASSWORD`, at least 12 characters). Pages send `noindex` and a
+Content-Security-Policy that blocks all scripts, since everything displayed
+was written by strangers.
+
+### Railway setup
+
+1. In the Railway project: **New → Database → PostgreSQL**. Don't enable public
+   networking on it; services reach it over the private network.
+2. Honeypot service → **Variables → New Variable → Add Reference**:
+   `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`. It redeploys and starts writing.
+3. **New → GitHub Repo →** this repo again, for the dashboard. In that service:
+   - **Settings → Config-as-code → Railway config file**: `/dashboard/railway.json`
+   - **Variables**: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`, and
+     `DASHBOARD_PASSWORD` = a long random password.
+   - **Settings → Networking → Generate Domain**. Railway gives it a random,
+     unrelated `*.up.railway.app` name.
+
+Each service only redeploys when its own files change (`watchPatterns`).
+
+Run locally:
+
+```bash
+pip install -r dashboard/requirements.txt
+DATABASE_URL=postgresql://... DASHBOARD_PASSWORD=... python dashboard/app.py   # http://127.0.0.1:8080
+```
 
 ## Analyze what connected
 
@@ -77,7 +119,10 @@ honeypot/
   server.py    Starlette + FastMCP app, wires everything together
   capture.py   ASGI middleware: logs IP, headers, raw JSON-RPC
   bait.py      the decoy tools and the disclosure scanner
-  eventlog.py  JSON-line logging to stdout (+ optional file)
+  eventlog.py  JSON-line logging to stdout (+ optional file / Postgres)
+  dbsink.py    background Postgres writer used when DATABASE_URL is set
+dashboard/
+  app.py       private read-only dashboard (separate Railway service)
 analyze.py     log summarizer
 smoke_test.py  end-to-end local test
 Dockerfile, railway.json
