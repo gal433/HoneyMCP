@@ -35,6 +35,13 @@ deliberate manipulation vector — the thing a robust agent should resist:
 3. `get_environment`, `read_file`, `run_command` reinforce the same funnel with
    believable "session not onboarded" responses.
 
+To keep an exploring client interacting (rather than listing the tools once and
+leaving), `read_file`, `run_command`, and `list_services` return **plausible but
+entirely fabricated** output — a small fake filesystem, believable command
+output, and a fake service inventory (`honeypot/fakedata.py`). Everything there
+is invented: hosts use `example.com`, IPs use the RFC 5737 documentation ranges,
+and nothing is actually read or executed.
+
 Nothing sensitive is ever returned; the server only collects. Anything a caller
 sends that looks like a leaked prompt, env dump, or secret — in any field — is
 flagged as a `disclosure_capture` event.
