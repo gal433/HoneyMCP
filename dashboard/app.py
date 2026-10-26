@@ -150,8 +150,14 @@ def table(headers: list[str], rows: list[list[str]], empty: str = "Nothing yet."
     if not rows:
         return f'<p class="muted">{empty}</p>'
     head = "".join(f"<th>{h}</th>" for h in headers)
-    body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>" for row in rows)
-    return f'<div class="scroll"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+    # data-label lets the phone layout show each cell as "label: value" once
+    # the header row is hidden and every row becomes a stacked card.
+    labels = [html.escape(h, quote=True) for h in headers]
+    body = "".join(
+        "<tr>" + "".join(f'<td data-label="{labels[i]}">{c}</td>' for i, c in enumerate(row)) + "</tr>"
+        for row in rows
+    )
+    return f'<div class="scroll"><table class="stack"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def pretty_json(value: Any) -> str:
@@ -208,7 +214,7 @@ nav a, .ranges a { margin-right:14px; }
 main { padding:20px; max-width:1300px; margin:0 auto; }
 a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
 h1 { font-size:20px; margin:0 0 14px; } h2 { font-size:15px; margin:0 0 10px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr)); gap:16px; }
 .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:16px; min-width:0; }
 .kpi .v { font-size:26px; font-weight:650; } .kpi .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
@@ -230,7 +236,46 @@ td a code { white-space:nowrap; }
 form.filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
 input, select, button { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
 button { cursor:pointer; }
-.hit { border-left:3px solid var(--warn); padding:6px 10px; margin:8px 0; background:var(--bg); }
+.hit { border-left:3px solid var(--warn); padding:6px 10px; margin:8px 0; background:var(--bg); overflow-wrap:anywhere; }
+ul { padding-left:18px; margin:0; } li { overflow-wrap:anywhere; }
+
+/* ---- phones: stacked cards instead of wide tables, thumb-sized controls ---- */
+@media (max-width: 700px) {
+  body { font-size:15px; -webkit-text-size-adjust:100%; }
+  header { padding:10px 12px 0; gap:6px; }
+  header .brand { width:100%; }
+  header nav, .ranges { display:flex; flex-wrap:wrap; gap:6px; width:100%; padding-bottom:10px; }
+  nav a, .ranges a { margin:0; padding:6px 11px; border:1px solid var(--line); border-radius:999px; white-space:nowrap; font-size:14px; }
+  .ranges a.on { background:var(--accent); color:var(--card); border-color:var(--accent); text-decoration:none; }
+  main { padding:12px; }
+  h1 { font-size:18px; overflow-wrap:anywhere; }
+  .card { padding:12px; margin-bottom:12px; }
+  .grid { grid-template-columns:1fr; gap:0; }
+  .kpis { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+  .kpis .card { margin:0; padding:10px 12px; }
+  .kpi .v { font-size:22px; } .kpi .l { font-size:11px; }
+  .axis { font-size:11px; flex-wrap:wrap; gap:2px 8px; }
+  form.filters { display:grid; grid-template-columns:1fr 1fr; }
+  form.filters select, form.filters input[name=q] { grid-column:1 / -1; }
+  form.filters a { align-self:center; text-align:center; }
+  input, select, button { font-size:16px; padding:10px; width:100%; min-height:44px; }
+  button { background:var(--accent); color:var(--card); border-color:var(--accent); font-weight:600; }
+  pre { font-size:12px; max-height:60vh; }
+  td a code { white-space:normal; }
+  code { overflow-wrap:anywhere; }
+
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display:block; width:100%; }
+  table.stack thead { display:none; }
+  table.stack tr { padding:8px 0; border-bottom:1px solid var(--line); }
+  table.stack tr:last-child { border-bottom:0; }
+  table.stack td { display:grid; grid-template-columns:7.5em minmax(0,1fr); gap:8px; padding:2px 0; border:0; overflow-wrap:anywhere; }
+  table.stack td::before { content:attr(data-label); color:var(--muted); font-size:12px; padding-top:2px; }
+  table.stack td:first-child { font-weight:600; }
+  table.stack td > .tag { justify-self:start; }
+  table.stack td[data-label="Detail"], table.stack td[data-label="User-Agent"], table.stack td[data-label="JSON-RPC"] { grid-template-columns:1fr; gap:0; }
+  table.stack td[data-label="Detail"]::before, table.stack td[data-label="User-Agent"]::before, table.stack td[data-label="JSON-RPC"]::before { display:none; }
+  table.stack td[data-label="Detail"] { margin-top:4px; padding:6px 8px; background:var(--bg); border-radius:6px; font-size:13px; }
+}
 """
 
 
