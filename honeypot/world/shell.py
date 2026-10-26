@@ -31,6 +31,49 @@ class Ctx:
     new_host: str | None = None                      # set by ssh; engine applies
 
 
+def _split_chain(line: str) -> list[tuple[str, str]]:
+    """Split a command line on top-level `;`, `&&`, `||`, honouring quotes.
+    Returns [(sep, segment)]; sep is "" for the first segment, else the operator
+    that precedes it. A single `|` (pipe) is left inside the segment."""
+    parts: list[tuple[str, str]] = []
+    buf = ""
+    sep = ""
+    quote: str | None = None
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if quote:
+            buf += ch
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf += ch
+            i += 1
+            continue
+        two = line[i:i + 2]
+        if two in ("&&", "||"):
+            parts.append((sep, buf.strip()))
+            sep = two
+            buf = ""
+            i += 2
+            continue
+        if ch == ";":
+            parts.append((sep, buf.strip()))
+            sep = ";"
+            buf = ""
+            i += 1
+            continue
+        buf += ch
+        i += 1
+    if buf.strip():
+        parts.append((sep, buf.strip()))
+    return [p for p in parts if p[1]]
+
+
 def _expand(tokens: list[str], env: dict[str, str]) -> list[str]:
     out = []
     for t in tokens:
@@ -42,7 +85,27 @@ def _expand(tokens: list[str], env: dict[str, str]) -> list[str]:
 
 class Shell:
     def run(self, line: str, ctx: Ctx) -> dict[str, Any]:
-        """Run one command line (supports simple pipelines and > / >> redirects)."""
+        """Run a command line, honouring `;`, `&&` and `||` chaining between
+        pipelines. `;` always runs the next part, `&&` only on success (exit 0),
+        `||` only on failure."""
+        parts = _split_chain(line or "")
+        if not parts:
+            return {"stdout": "", "exit_code": 0}
+        out = ""
+        code = 0
+        for i, (sep, segment) in enumerate(parts):
+            if i > 0:
+                if sep == "&&" and code != 0:
+                    continue
+                if sep == "||" and code == 0:
+                    continue
+            res = self._run_pipeline(segment, ctx)
+            out += res["stdout"]
+            code = res["exit_code"]
+        return {"stdout": out, "exit_code": code}
+
+    def _run_pipeline(self, line: str, ctx: Ctx) -> dict[str, Any]:
+        """Run one pipeline (supports `|` and > / >> redirects)."""
         line = (line or "").strip()
         if not line:
             return {"stdout": "", "exit_code": 0}
