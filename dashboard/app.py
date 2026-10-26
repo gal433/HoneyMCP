@@ -222,7 +222,7 @@ code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fo
 pre { white-space:pre-wrap; word-break:break-word; margin:0; max-height:70vh; overflow:auto; }
 .muted { color:var(--muted); }
 .tag { display:inline-block; padding:1px 7px; border-radius:999px; border:1px solid var(--line); font-size:12px; }
-.tag.disclosure_capture, .tag.honeytoken_hit, .tag.injection_compliance { background:var(--warnbg); color:var(--warn); border-color:transparent; }
+.tag.disclosure_capture, .tag.honeytoken_hit, .tag.injection_compliance, .tag.exfiltration_attempt { background:var(--warnbg); color:var(--warn); border-color:transparent; }
 .chart { width:100%; height:auto; display:block; } .chart rect { fill:var(--accent); } .chart line { stroke:var(--line); }
 .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; margin-top:4px; }
 .kpi.warn .v a { color:inherit; }
@@ -244,7 +244,7 @@ def page(title: str, body: str, range_key: str | None = None, path: str = "/") -
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{esc(title)} · Watchtower</title><style>{STYLE}</style></head><body>
 <header><span class="brand">Watchtower</span>
-<nav><a href="/">Overview</a><a href="/events">All events</a><a href="/events?type=disclosure_capture">Disclosures</a><a href="/events?type=honeytoken_hit">Honeytokens</a><a href="/events?type=injection_compliance">Injections</a></nav>
+<nav><a href="/">Overview</a><a href="/events">All events</a><a href="/events?type=disclosure_capture">Disclosures</a><a href="/events?type=honeytoken_hit">Honeytokens</a><a href="/events?type=injection_compliance">Injections</a><a href="/events?type=exfiltration_attempt">Exfil</a></nav>
 {ranges}</header><main>{body}</main></body></html>"""
     return HTMLResponse(doc, headers=SECURITY_HEADERS)
 
@@ -266,6 +266,7 @@ def overview(request: Request) -> HTMLResponse:
           count(*) FILTER (WHERE event = 'disclosure_capture') AS disclosures,
           count(*) FILTER (WHERE event = 'honeytoken_hit') AS honeytokens,
           count(*) FILTER (WHERE event = 'injection_compliance') AS injections,
+          count(*) FILTER (WHERE event = 'exfiltration_attempt') AS exfils,
           (SELECT count(*) FROM events {MESSAGES} WHERE event = 'http_request' AND ts >= %s
              AND m->>'method' = 'initialize') AS initializes,
           (SELECT count(*) FROM events {MESSAGES} WHERE event = 'http_request' AND ts >= %s
@@ -358,6 +359,7 @@ def overview(request: Request) -> HTMLResponse:
   {kpi("Disclosures", k["disclosures"], warn=True, href="/events?type=disclosure_capture")}
   {kpi("Honeytoken use", k["honeytokens"], warn=True, href="/events?type=honeytoken_hit")}
   {kpi("Injection follows", k["injections"], warn=True, href="/events?type=injection_compliance")}
+  {kpi("Exfil attempts", k["exfils"], warn=True, href="/events?type=exfiltration_attempt")}
 </div>
 <div class="card"><h2>Requests per {unit}</h2>{bar_chart([(r["bucket"], r["n"]) for r in timeline], unit)}</div>
 <div class="card"><h2>Latest disclosures</h2>{disclosure_html or '<p class="muted">None captured in this range.</p>'}</div>
