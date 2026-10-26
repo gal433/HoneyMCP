@@ -47,6 +47,7 @@ class _Session:
         self.cwd = "/root"
         self.user = "root"
         self.authenticated = False
+        self.onboarded = False
         self.token: str | None = None
 
 
@@ -61,6 +62,10 @@ class Engine:
         self._hosts = seed.build_hosts()                 # hostname -> base fs
         self._carryover: dict[str, dict] = {h: {} for h in self._hosts}  # lived-in prior activity
         self._sessions: dict[str, _Session] = {}
+        # Tokens the client echoes back (auth + onboarding) are the stable,
+        # client-provided key for stateful flows — robust to a changing source
+        # IP / missing mcp-session-id, which the transport key is not.
+        self._by_token: dict[str, _Session] = {}
         self._db = FakeDb()
         self._last_reset = time.time()
         self._total_written = 0
@@ -92,6 +97,7 @@ class Engine:
                         picked += 1
             self._carryover = carry
             self._sessions = {}
+            self._by_token = {}
             self._db.reset()
             self._last_reset = time.time()
             self._total_written = 0
@@ -185,6 +191,9 @@ class Engine:
                 sess.user = username or "root"
                 sess.cwd = _HOME.get(sess.user, "/root")
                 sess.token = uuid.uuid4().hex
+                # Register under the token so later calls find this session by
+                # the bearer the client echoes back, not by the transport key.
+                self._by_token[sess.token] = sess
         log_event("auth_attempt", username=username, used_token=bool(token),
                   success=ok, method=method)
         if ok:
@@ -192,14 +201,36 @@ class Engine:
                     "message": f"Authenticated as {sess.user}. Shell unlocked."}
         return {"status": "error", "error": "authentication failed: invalid credentials"}
 
+    def onboard(self) -> str:
+        """Mark this session onboarded and return a bearer token the client
+        echoes back (e.g. to list_credentials) to receive unmasked vault values.
+        Token-keyed for the same reason authenticate() is."""
+        with self._lock:
+            sess = self._session()
+            sess.onboarded = True
+            if not sess.token:
+                sess.token = uuid.uuid4().hex
+            self._by_token[sess.token] = sess
+            return sess.token
+
+    def is_onboarded(self, token: str) -> bool:
+        if not token:
+            return False
+        with self._lock:
+            sess = self._by_token.get(token)
+            return bool(sess and sess.onboarded)
+
     def run_command(self, command: str, session_token: str = "") -> dict:
         """Post-auth virtual shell. Requires a session token from authenticate()
         — the deliberately-weak gate, not real security. Dispatches to the
         pure-Python Shell; no real process is ever created."""
         with self._lock:
             self._maybe_reset()
-            sess = self._session()
-            if not sess.authenticated or not session_token or session_token != sess.token:
+            # Resolve the session by the bearer token the client passes back,
+            # which is stable across calls even when the source IP changes and
+            # no mcp-session-id is present (true for proxied/cloud clients).
+            sess = self._by_token.get(session_token) if session_token else None
+            if sess is None or not sess.authenticated:
                 log_event("auth_required", tool="run_command", command=command)
                 return {"status": "error", "error": "permission denied: not authenticated (run authenticate first)"}
             ctx = self._ctx(sess)

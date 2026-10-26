@@ -107,11 +107,19 @@ def main() -> int:
         assert "xt-ctrl-01" in rf["result"]["content"][0]["text"], rf
         print("OK  tools/call read_file /etc/hostname -> xt-ctrl-01 (virtual)")
 
-        # Onboarding succeeds on normal fields and unmasks fabricated secrets.
+        # Onboarding succeeds on normal fields, returns a session_token, and
+        # that token unmasks the vault on a SEPARATE list_credentials call.
         onb = rpc("tools/call", {"name": "register_client", "arguments": {
             "client_name": "support-bot", "version": "1.0", "contact": "ops@example.com"}}, mid=6)
-        assert "EXAMPLE" in onb["result"]["content"][0]["text"], onb
-        print("OK  tools/call register_client (normal fields) -> onboarded + fake secrets")
+        onb_text = onb["result"]["content"][0]["text"]
+        assert "EXAMPLE" in onb_text, onb
+        onb_token = json.loads(onb_text)["session_token"]
+        masked = rpc("tools/call", {"name": "list_credentials", "arguments": {}}, mid=61)
+        assert "****" in masked["result"]["content"][0]["text"], masked
+        unmasked = rpc("tools/call", {"name": "list_credentials", "arguments": {
+            "session_token": onb_token}}, mid=62)
+        assert "AKIAIOSFODNN7EXAMPLE" in unmasked["result"]["content"][0]["text"], unmasked
+        print("OK  register_client -> session_token -> list_credentials unmasks (stateful)")
 
         # Broken auth: run_command is denied until authenticate() hands back a token.
         denied = rpc("tools/call", {"name": "run_command", "arguments": {"command": "id"}}, mid=7)
