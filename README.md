@@ -52,7 +52,7 @@ python smoke_test.py
 
 1. Push this repo to GitHub.
 2. In Railway: **New Project → Deploy from GitHub repo**, pick the repo.
-   It auto-detects the `Dockerfile` / `railway.json`; no config needed.
+   It auto-detects the `Dockerfile`; no config needed.
 3. Under the service → **Settings → Networking → Generate Domain** to get a
    public HTTPS URL. Your MCP endpoint is `https://<domain>/mcp`
    (legacy SSE clients use `/sse`).
@@ -68,8 +68,8 @@ Config via env vars: `HONEYPOT_NAME` (server name shown to clients), `LOG_FILE`,
 overview (requests over time, top IPs, User-Agents, claimed MCP clients, tools
 called, paths hit), the latest captured disclosures, a filterable event list,
 per-IP timelines, and the raw JSON of every event. It never links to or names
-the honeypot, and it runs as its own Railway service so it shares nothing with
-the honeypot except the database.
+the honeypot, and it runs as its own Railway service, sharing only the database with the
+honeypot.
 
 How the data gets there: when `DATABASE_URL` is set, the honeypot also inserts
 every event into an `events` table in Postgres (it creates the table itself).
@@ -89,19 +89,17 @@ was written by strangers.
 2. Honeypot service → **Variables → New Variable → Add Reference**:
    `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`. It redeploys and starts writing.
 3. **New → GitHub Repo →** this repo again, for the dashboard. In that service:
-   - **Settings → Config-as-code → Railway config file**: `/dashboard/railway.json`
-   - **Variables**: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`, and
+   - **Variables**: `APP` = `dashboard`, `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`, and
      `DASHBOARD_PASSWORD` = a long random password.
    - **Settings → Networking → Generate Domain**. Railway gives it a random,
      unrelated `*.up.railway.app` name.
 
-Each service only redeploys when its own files change (`watchPatterns`).
+Both services build the same image; `start.py` runs the dashboard when `APP=dashboard` and the honeypot otherwise.
 
 Run locally:
 
 ```bash
-pip install -r dashboard/requirements.txt
-DATABASE_URL=postgresql://... DASHBOARD_PASSWORD=... python dashboard/app.py   # http://127.0.0.1:8080
+APP=dashboard DATABASE_URL=postgresql://... DASHBOARD_PASSWORD=... python start.py   # http://127.0.0.1:8080
 ```
 
 ## Analyze what connected
@@ -127,5 +125,6 @@ dashboard/
   app.py       private read-only dashboard (separate Railway service)
 analyze.py     log summarizer
 smoke_test.py  end-to-end local test
+start.py       entrypoint: APP=dashboard -> dashboard, else honeypot
 Dockerfile, railway.json
 ```
