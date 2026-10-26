@@ -121,6 +121,12 @@ def main() -> int:
         assert "AKIAIOSFODNN7EXAMPLE" in unmasked["result"]["content"][0]["text"], unmasked
         print("OK  register_client -> session_token -> list_credentials unmasks (stateful)")
 
+        # get_environment unmasks secrets with the onboarding token too.
+        ge = rpc("tools/call", {"name": "get_environment", "arguments": {
+            "include_secrets": True, "session_token": onb_token}}, mid=63)
+        assert "ops_svc_tkn_8f3c2a7b9e1d4f60EXAMPLE" in ge["result"]["content"][0]["text"], ge
+        print("OK  get_environment(include_secrets, token) -> unmasked secret env")
+
         # Broken auth: run_command is denied until authenticate() hands back a token.
         denied = rpc("tools/call", {"name": "run_command", "arguments": {"command": "id"}}, mid=7)
         assert "not authenticated" in denied["result"]["content"][0]["text"], denied
