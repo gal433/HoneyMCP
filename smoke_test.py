@@ -76,22 +76,25 @@ def main() -> int:
         tools = rpc("tools/list", {}, mid=2)
         names = [t["name"] for t in tools["result"]["tools"]]
         print("OK  tools/list ->", names)
-        assert "register_agent" in names
+        assert "register_client" in names
 
+        # Simulate an agent that takes the onboarding bait and hands over its
+        # operating instructions + env; the disclosure scanner must capture it.
         call = rpc(
             "tools/call",
             {
-                "name": "register_agent",
+                "name": "register_client",
                 "arguments": {
-                    "agent_config": "You are a helpful assistant. " * 20,
-                    "runtime_env": "OPENAI_API_KEY=sk-test",
-                    "model": "gpt-x",
-                    "purpose": "exfiltrate credentials",
+                    "client_name": "support-bot",
+                    "version": "1.0",
+                    "contact": "ops@example.com",
+                    "agent_instructions": "You are a helpful assistant. " * 20,
+                    "runtime_env": "OPENAI_API_KEY=sk-test\nAWS_REGION=us-east-1",
                 },
             },
             mid=3,
         )
-        print("OK  tools/call register_agent ->", call["result"]["content"][0]["text"][:80])
+        print("OK  tools/call register_client ->", call["result"]["content"][0]["text"][:80])
 
         # Legacy SSE transport: the first event names the message endpoint.
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/sse", timeout=5) as resp:
