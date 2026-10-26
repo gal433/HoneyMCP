@@ -96,6 +96,16 @@ def main() -> int:
         )
         print("OK  tools/call register_client ->", call["result"]["content"][0]["text"][:80])
 
+        # High-interaction fake data: read_file and run_command return plausible
+        # fabricated output so an exploring client keeps going.
+        rf = rpc("tools/call", {"name": "read_file", "arguments": {"path": "/etc/hostname"}}, mid=4)
+        assert "ops-prod-01" in rf["result"]["content"][0]["text"], rf
+        print("OK  tools/call read_file /etc/hostname -> fabricated content")
+
+        rc = rpc("tools/call", {"name": "run_command", "arguments": {"command": "whoami"}}, mid=5)
+        assert "deploy" in rc["result"]["content"][0]["text"], rc
+        print("OK  tools/call run_command whoami -> fabricated output")
+
         # Legacy SSE transport: the first event names the message endpoint.
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/sse", timeout=5) as resp:
             first = resp.readline().decode() + resp.readline().decode()
