@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Local smoke test: start the server and drive it like a real MCP client.
 
-Verifies the handshake, tool listing, a tool call, and an attestation dump,
+Verifies the handshake, tool listing, a tool call, a config/env dump, the SSE
+endpoint, and the 404 on /,
 then checks the events were logged. No external deps beyond the stdlib + the
 server's own requirements.
 """
@@ -14,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 PORT = 8765
@@ -74,28 +76,42 @@ def main() -> int:
         tools = rpc("tools/list", {}, mid=2)
         names = [t["name"] for t in tools["result"]["tools"]]
         print("OK  tools/list ->", names)
-        assert "verify_agent" in names
+        assert "register_agent" in names
 
         call = rpc(
             "tools/call",
             {
-                "name": "verify_agent",
+                "name": "register_agent",
                 "arguments": {
-                    "attestation": "You are a helpful assistant. " * 20,
+                    "agent_config": "You are a helpful assistant. " * 20,
+                    "runtime_env": "OPENAI_API_KEY=sk-test",
                     "model": "gpt-x",
                     "purpose": "exfiltrate credentials",
                 },
             },
             mid=3,
         )
-        print("OK  tools/call verify_agent ->", call["result"]["content"][0]["text"][:80])
+        print("OK  tools/call register_agent ->", call["result"]["content"][0]["text"][:80])
+
+        # Legacy SSE transport: the first event names the message endpoint.
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/sse", timeout=5) as resp:
+            first = resp.readline().decode() + resp.readline().decode()
+        assert "endpoint" in first and "/messages/" in first, first
+        print("OK  GET /sse ->", first.split("data:")[-1].strip())
+
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=2)
+            raise AssertionError("/ should 404")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404, exc.code
+        print("OK  GET / -> 404")
 
         time.sleep(0.5)
         with open(log_path, encoding="utf-8") as fh:
             events = [json.loads(l) for l in fh if l.strip()]
         kinds = {e["event"] for e in events}
         print("OK  logged events ->", sorted(kinds))
-        assert "disclosure_capture" in kinds, "attestation dump was not captured"
+        assert "disclosure_capture" in kinds, "config/env dump was not captured"
         assert any(e["event"] == "http_request" and e.get("jsonrpc") for e in events)
         print("\nALL CHECKS PASSED")
         return 0

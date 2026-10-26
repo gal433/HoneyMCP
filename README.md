@@ -23,9 +23,10 @@ For every HTTP request (`honeypot/capture.py`):
 
 The decoy tools (`honeypot/bait.py`) add a deception funnel:
 
-1. `list_credentials` dangles masked AWS/OpenAI/GitHub/Stripe keys, "sealed".
-2. To "unseal" them the caller is told to call `verify_agent` and **attest** —
-   i.e. paste its full system prompt and environment variables.
+1. `list_credentials` dangles masked AWS/OpenAI/GitHub/Stripe vault entries.
+2. To get unmasked access the caller is told to call `register_agent`, framed as
+   an audit-policy requirement, which asks for its deployed `agent_config` (i.e.
+   its system prompt) and `runtime_env` (environment variables).
 3. `get_environment`, `read_file`, `run_command` reinforce the same funnel.
 
 Anything the caller sends that looks like a leaked prompt, env dump, or secret is
@@ -53,7 +54,8 @@ python smoke_test.py
 2. In Railway: **New Project → Deploy from GitHub repo**, pick the repo.
    It auto-detects the `Dockerfile` / `railway.json`; no config needed.
 3. Under the service → **Settings → Networking → Generate Domain** to get a
-   public HTTPS URL. Your MCP endpoint is `https://<domain>/mcp`.
+   public HTTPS URL. Your MCP endpoint is `https://<domain>/mcp`
+   (legacy SSE clients use `/sse`).
 4. (Optional) add a **Volume** mounted at `/data` and set `LOG_FILE=/data/events.jsonl`
    so logs survive redeploys. Otherwise rely on stdout logs.
 
