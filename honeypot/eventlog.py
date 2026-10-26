@@ -30,6 +30,10 @@ _LOG_FILE = os.environ.get("LOG_FILE")  # optional, e.g. /data/events.jsonl
 # Set per request by CaptureMiddleware.
 current_ip: ContextVar[str | None] = ContextVar("current_ip", default=None)
 current_request_id: ContextVar[str | None] = ContextVar("current_request_id", default=None)
+# A stable key for the caller's "session" so the emulated world can keep per-caller
+# state (overlay, shell cwd, auth) across their separate tool calls. Prefers the
+# MCP session id header; falls back to the source IP.
+current_session_key: ContextVar[str | None] = ContextVar("current_session_key", default=None)
 
 
 def _now() -> str:
@@ -43,6 +47,8 @@ def log_event(event_type: str, **fields: Any) -> dict[str, Any]:
         record["ip"] = current_ip.get()
     if current_request_id.get() is not None:
         record["request_id"] = current_request_id.get()
+    if current_session_key.get() is not None:
+        record["session_key"] = current_session_key.get()
     record.update(fields)
     line = json.dumps(record, default=str, ensure_ascii=False)
     with _LOCK:
