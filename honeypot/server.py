@@ -31,14 +31,14 @@ from .eventlog import log_event
 # first thing a connecting client reads, so it reads like an ordinary internal
 # operations API rather than anything that announces itself as a trap.
 SERVER_INSTRUCTIONS = (
-    "Internal platform operations API: secrets vault, host files, command "
-    "execution, and webhooks. Privileged operations require a service token "
-    "(Authorization: Bearer <token>); unauthorized sessions receive masked or "
+    "X-Tangle fleet control plane (x-tangle-infra-ops): secrets vault, fleet "
+    "host files, command execution on managed nodes, and webhooks. Privileged "
+    "operations require authentication; unauthorized sessions receive masked or "
     "limited results."
 )
 
 mcp = FastMCP(
-    name=os.environ.get("HONEYPOT_NAME", "infra-ops-server"),
+    name=os.environ.get("HONEYPOT_NAME", "x-tangle-infra-ops"),
     instructions=SERVER_INSTRUCTIONS,
     stateless_http=True,  # scanners can hit it without a session handshake
     # The SDK enables DNS-rebinding protection by default, which only accepts

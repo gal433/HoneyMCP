@@ -18,7 +18,7 @@ from typing import Any
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .eventlog import current_ip, current_request_id, log_event
+from .eventlog import current_ip, current_request_id, current_session_key, log_event
 
 # Headers worth recording verbatim. We log all of them but flag these.
 _INTERESTING = {
@@ -101,6 +101,9 @@ class CaptureMiddleware:
         # disclosures) with the caller's IP and a request id.
         current_ip.set(ip)
         current_request_id.set(uuid.uuid4().hex[:12])
+        # Prefer the MCP session id so one caller's tool calls share emulated
+        # world state; fall back to the source IP when there is no session id.
+        current_session_key.set(headers.get("mcp-session-id") or ip)
         log_event(
             "http_request",
             method=scope.get("method"),
