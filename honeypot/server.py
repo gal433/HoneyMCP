@@ -15,6 +15,7 @@ import os
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
@@ -37,6 +38,10 @@ mcp = FastMCP(
     name=os.environ.get("HONEYPOT_NAME", "infra-ops-server"),
     instructions=SERVER_INSTRUCTIONS,
     stateless_http=True,  # scanners can hit it without a session handshake
+    # The SDK enables DNS-rebinding protection by default, which only accepts
+    # localhost Host headers and answers 421 to the public domain. A honeypot
+    # must accept any Host, so turn it off.
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 register_tools(mcp)
 
