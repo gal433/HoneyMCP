@@ -586,6 +586,35 @@ def ip_detail(request: Request) -> HTMLResponse:
     return page(f"IP {ip}", body)
 
 
+EXPORT_MAX = 20_000
+
+
+def export(request: Request) -> Response:
+    """Raw events as JSON lines, oldest first, for offline analysis.
+
+    Page with ?after=<last id seen>; an empty body means you are caught up.
+    Optional ?type= filters by event type. The body is attacker-controlled data,
+    served as a download (never rendered), behind the same Basic auth.
+    """
+    qp = request.query_params
+    after = int(qp["after"]) if qp.get("after", "").isdigit() else 0
+    limit = min(int(qp["limit"]), EXPORT_MAX) if qp.get("limit", "").isdigit() else 5_000
+    where, params = ["id > %s"], [after]
+    if qp.get("type"):
+        where.append("event = %s")
+        params.append(qp["type"])
+    rows = query(
+        f"SELECT id, ts, event, ip, request_id, data FROM events WHERE {' AND '.join(where)} ORDER BY id LIMIT %s",
+        [*params, max(limit, 1)],
+    )
+    body = "".join(json.dumps(r, default=str, ensure_ascii=False) + "\n" for r in rows)
+    return Response(
+        body,
+        media_type="application/x-ndjson",
+        headers={**SECURITY_HEADERS, "Content-Disposition": 'attachment; filename="events.jsonl"'},
+    )
+
+
 def health(request: Request) -> Response:
     return PlainTextResponse("ok")
 
@@ -597,6 +626,7 @@ def build_app() -> ASGIApp:
             Route("/events", events),
             Route("/events/{event_id:int}", event_detail),
             Route("/ip/{ip:path}", ip_detail),
+            Route("/export.jsonl", export),
             Route("/health", health),
         ]
     )
