@@ -182,12 +182,27 @@ def main() -> int:
         assert "endpoint" in first and "/messages/" in first, first
         print("OK  GET /sse ->", first.split("data:")[-1].strip())
 
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=2)
-            raise AssertionError("/ should 404")
-        except urllib.error.HTTPError as exc:
-            assert exc.code == 404, exc.code
-        print("OK  GET / -> 404")
+        # Landing page instead of a bare 404, and decoy breadcrumbs that point
+        # deeper into the honeypot.
+        def get(path):
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}{path}", timeout=3) as r:
+                return r.status, r.read().decode()
+        st, html = get("/")
+        assert st == 200 and "X-Tangle" in html and "honeypot" not in html.lower(), (st, html[:200])
+        assert "watchtower" not in html.lower() and "dashboard" not in html.lower(), "landing leaks dashboard"
+        print("OK  GET / -> X-Tangle landing page (no honeypot/dashboard hints)")
+
+        st, env = get("/.env")
+        from honeypot.fakedata import HONEYTOKEN
+        assert st == 200 and HONEYTOKEN in env and "mcp.x-tangle.com/mcp" in env, env[:200]
+        print("OK  GET /.env -> fabricated env w/ honeytoken + MCP pointer")
+        for p, needle in [("/.git/config", "x-tangle.internal"),
+                          ("/mcp.json", "mcp.x-tangle.com/mcp"),
+                          ("/.cursor/mcp.json", "mcp.x-tangle.com/mcp"),
+                          ("/.well-known/mcp.json", "x-tangle-infra-ops")]:
+            st, body = get(p)
+            assert st == 200 and needle in body, (p, st, body[:160])
+            print(f"OK  GET {p} -> decoy served")
 
         time.sleep(0.5)
         with open(log_path, encoding="utf-8") as fh:
@@ -205,6 +220,7 @@ def main() -> int:
         assert any(e["event"] == "tool_invocation" and e.get("response_ref") for e in events), \
             "tool_invocation events are missing response_ref"
         assert any(e["event"] == "http_request" and e.get("jsonrpc") for e in events)
+        assert "breadcrumb" in kinds, "breadcrumb hits were not logged"
         print("\nALL CHECKS PASSED")
         return 0
     finally:

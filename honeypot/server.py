@@ -20,9 +20,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
+from . import breadcrumbs
 from .bait import register_tools
 from .capture import CaptureMiddleware
 from .eventlog import log_event
@@ -49,11 +50,6 @@ mcp = FastMCP(
 register_tools(mcp)
 
 
-async def index(request: Request) -> PlainTextResponse:
-    """Plain 404, the same thing a stock FastMCP/Starlette server answers on /."""
-    return PlainTextResponse("Not Found", status_code=404)
-
-
 async def health(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
@@ -64,8 +60,12 @@ def build_app() -> Starlette:
     sse_app = mcp.sse_app()
     app = Starlette(
         routes=[
-            Route("/", index),
+            # A plausible internal-service landing page instead of a bare 404,
+            # and decoy breadcrumbs at the paths scanners probe — all static,
+            # fabricated, and pointing deeper into the honeypot.
+            Route("/", breadcrumbs.landing),
             Route("/health", health),
+            *breadcrumbs.routes(),
             *sse_app.routes,
             Mount("/", app=mcp_app),  # /mcp and any sub-paths
         ],
