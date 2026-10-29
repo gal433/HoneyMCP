@@ -199,10 +199,27 @@ def main() -> int:
         for p, needle in [("/.git/config", "x-tangle.internal"),
                           ("/mcp.json", "mcp.x-tangle.com/mcp"),
                           ("/.cursor/mcp.json", "mcp.x-tangle.com/mcp"),
-                          ("/.well-known/mcp.json", "x-tangle-infra-ops")]:
+                          ("/.well-known/mcp.json", "x-tangle-infra-ops"),
+                          ("/llms.txt", "mcp.x-tangle.com/mcp"),
+                          ("/robots.txt", "Disallow: /admin"),
+                          ("/sitemap.xml", "<urlset"),
+                          ("/admin", "Sign in"),
+                          ("/internal", "X-Tangle")]:
             st, body = get(p)
             assert st == 200 and needle in body, (p, st, body[:160])
             print(f"OK  GET {p} -> decoy served")
+        # robots.txt advertises the sitemap; /backup leaks the honeytoken naturally.
+        st, rob = get("/robots.txt")
+        assert "sitemap.xml" in rob.lower(), rob
+        st, bak = get("/backup")
+        assert st == 200 and HONEYTOKEN in bak, bak[:160]
+        print("OK  /backup -> fabricated manifest w/ honeytoken; /robots.txt -> sitemap")
+        # No honeypot/dashboard hints anywhere in the crawlable surface.
+        for p in ("/", "/llms.txt", "/internal", "/admin"):
+            _, body = get(p)
+            low = body.lower()
+            assert "honeypot" not in low and "watchtower" not in low and "dashboard" not in low, p
+        print("OK  crawlable surface has no honeypot/dashboard hints")
 
         time.sleep(0.5)
         with open(log_path, encoding="utf-8") as fh:
