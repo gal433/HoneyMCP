@@ -301,6 +301,62 @@ _INTERNAL = f"""<!doctype html>
 """
 
 
+# --- agent / dev credential files scanners now hunt for -------------------
+# All fabricated. Each carries the honeytoken and/or fabricated vault values, so
+# a scanner that harvests one and later feeds it to a tool trips honeytoken_hit
+# / exfiltration_attempt — same as /.env and /backup's env.bak.
+_EXPIRES_MS = int((_NOW.timestamp() + 30 * 86400) * 1000)
+
+# ~/.claude/.credentials.json (also served at the XDG path /.config/claude/...)
+_CLAUDE_CREDS = f"""{{
+  "claudeAiOauth": {{
+    "accessToken": "sk-ant-oat01-0000000000000000000000000000EXAMPLE",
+    "refreshToken": "sk-ant-ort01-0000000000000000000000000000EXAMPLE",
+    "expiresAt": {_EXPIRES_MS},
+    "scopes": ["user:inference", "user:profile"]
+  }},
+  "xtangleServiceToken": "{fakedata.HONEYTOKEN}",
+  "mcpServers": {{
+    "x-tangle-infra-ops": {{"url": "{_MCP}", "transport": "streamable-http"}}
+  }}
+}}
+"""
+
+# ~/.codex/auth.json (OpenAI Codex CLI style)
+_CODEX_AUTH = f"""{{
+  "OPENAI_API_KEY": "{_OPENAI}",
+  "tokens": {{
+    "access_token": "eyJhbGciOiJIUzI1NiexampleEXAMPLE",
+    "account_id": "acct_0000000000EXAMPLE"
+  }},
+  "XT_SERVICE_TOKEN": "{fakedata.HONEYTOKEN}",
+  "mcp": {{"x-tangle-infra-ops": "{_MCP}"}}
+}}
+"""
+
+# ~/.aws/credentials
+_AWS_CREDS = f"""\
+[default]
+aws_access_key_id = {_AWS}
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+[xtangle-ops]
+aws_access_key_id = {_AWS}
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+region = us-east-1
+"""
+
+# ~/.netrc
+_NETRC = f"""\
+machine mcp.x-tangle.com
+  login xtangle-agent
+  password {fakedata.HONEYTOKEN}
+machine git.x-tangle.internal
+  login deploy
+  password deploy
+"""
+
+
 def _crumb(path: str) -> None:
     log_event("breadcrumb", path=path)
 
@@ -360,6 +416,26 @@ async def internal(request: Request) -> HTMLResponse:
     return HTMLResponse(_INTERNAL)
 
 
+async def claude_creds(request: Request) -> Response:
+    _crumb(request.url.path)
+    return Response(_CLAUDE_CREDS, media_type="application/json")
+
+
+async def codex_auth(request: Request) -> Response:
+    _crumb("/.codex/auth.json")
+    return Response(_CODEX_AUTH, media_type="application/json")
+
+
+async def aws_creds(request: Request) -> PlainTextResponse:
+    _crumb("/.aws/credentials")
+    return PlainTextResponse(_AWS_CREDS)
+
+
+async def netrc(request: Request) -> PlainTextResponse:
+    _crumb("/.netrc")
+    return PlainTextResponse(_NETRC)
+
+
 def routes() -> list[Route]:
     """Breadcrumb routes. Registered before the catch-all MCP mount so these
     exact paths win; everything else still falls through to /mcp or a 404."""
@@ -377,4 +453,11 @@ def routes() -> list[Route]:
         Route("/admin", admin),
         Route("/backup", backup),
         Route("/internal", internal),
+        # Agent / dev credential files scanners specifically hunt for — decoys
+        # carrying the honeytoken instead of a 404.
+        Route("/.claude/.credentials.json", claude_creds),
+        Route("/.config/claude/.credentials.json", claude_creds),
+        Route("/.codex/auth.json", codex_auth),
+        Route("/.aws/credentials", aws_creds),
+        Route("/.netrc", netrc),
     ]
