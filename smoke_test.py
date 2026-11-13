@@ -208,6 +208,16 @@ def main() -> int:
             st, body = get(p)
             assert st == 200 and needle in body, (p, st, body[:160])
             print(f"OK  GET {p} -> decoy served")
+        # Agent/dev credential decoys: fabricated, honeytoken-bearing, not 404.
+        for p in ("/.claude/.credentials.json", "/.config/claude/.credentials.json",
+                  "/.codex/auth.json", "/.netrc"):
+            st, body = get(p)
+            assert st == 200 and HONEYTOKEN in body, (p, st, body[:160])
+            print(f"OK  GET {p} -> decoy cred w/ honeytoken")
+        st, awsc = get("/.aws/credentials")
+        assert st == 200 and "aws_access_key_id" in awsc and "AKIAIOSFODNN7EXAMPLE" in awsc, awsc[:160]
+        print("OK  GET /.aws/credentials -> fabricated aws creds")
+
         # robots.txt advertises the sitemap; /backup leaks the honeytoken naturally.
         st, rob = get("/robots.txt")
         assert "sitemap.xml" in rob.lower(), rob
